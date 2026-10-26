@@ -130,14 +130,6 @@ proc waitForFilterMessages(
     await sleepAsync(50.milliseconds)
   return messages
 
-proc nodeErrorCount(errorType: string): float64 =
-  try:
-    return logos_delivery_node_errors.valueByName(
-      "logos_delivery_node_errors_total", [errorType]
-    )
-  except ValueError:
-    return 0.0
-
 suite "Waku v2 Rest API - Filter V2":
   asyncTest "Subscribe a node to an array of topics - POST /filter/v2/subscriptions":
     # Given
@@ -504,7 +496,7 @@ suite "Waku v2 Rest API - Filter V2":
       postMsgResponse1.data == "OK"
       len(messages1.data) == 1
 
-    # Pause execution for 1 seconds to test TimeCache functionality of service node
+    # Pause past the filter cache TTL: the relay still remembers the message
     await sleepAsync(1.seconds)
 
     # second - message push from service node to subscriber client
@@ -512,14 +504,14 @@ suite "Waku v2 Rest API - Filter V2":
       DefaultPubsubTopic, toRelayWakuMessage(testMessage)
     )
 
-    # check message received client side or not
+    # check the duplicate is not pushed again to the client
     let messages2 = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
 
     check:
       postMsgResponse2.status == 200
       $postMsgResponse2.contentType == $MIMETYPE_TEXT
       postMsgResponse2.data == "OK"
-      len(messages2.data) == 1
+      len(messages2.data) == 0
     await restFilterTest.shutdown()
 
   asyncTest "A pushed message is read back field by field - GET /filter/v2/messages/{contentTopic}":
