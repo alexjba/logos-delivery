@@ -125,6 +125,7 @@ type PeerManager* = ref object
   ipTable*: Table[string, seq[PeerId]]
   colocationLimit*: int
   started: bool
+  staticRedialLoopHandle: Future[void]
   shardedPeerManagement: bool # temp feature flag
   onConnectionChange*: ConnectionChangeHandler
   online: bool ## state managed by online_monitor module
@@ -1280,7 +1281,7 @@ proc start*(pm: PeerManager) =
   asyncSpawn pm.logAndMetrics()
 
 proc redialStaticPeersLoop(pm: PeerManager, peers: seq[string]) {.async.} =
-  while pm.started:
+  while true:
     await sleepAsync(
       min(ConnectivityLoopInterval, chronos.seconds(max(pm.initialBackoffInSec, 1)))
     )
@@ -1297,10 +1298,12 @@ proc startStaticPeersRedial*(pm: PeerManager, peers: seq[string]) =
   ## For nodes without relay, whose connectivity loop is not running:
   ## dial again the static peers that were down, honouring the backoff.
   pm.started = true
-  asyncSpawn pm.redialStaticPeersLoop(peers)
+  pm.staticRedialLoopHandle = pm.redialStaticPeersLoop(peers)
 
 proc stop*(pm: PeerManager) =
   pm.started = false
+  if not pm.staticRedialLoopHandle.isNil():
+    pm.staticRedialLoopHandle.cancelSoon()
 
 proc new*(
     T: type PeerManager,
