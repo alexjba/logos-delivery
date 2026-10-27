@@ -111,9 +111,10 @@ func getShortestTimeRetention*(self: WakuArchive): Opt[chronos.Duration] =
         shortest = Opt.some(retention)
   return shortest
 
-proc handleMessage*(
+proc storeMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
-) {.async.} =
+): Future[Result[void, string]] {.async.} =
+  ## Archives a relayed message. Fails when the message is rejected or not stored.
   let msgHash = computeMessageHash(pubsubTopic, msg)
   let msgHashHex = msgHash.to0xHex()
 
@@ -131,7 +132,7 @@ proc handleMessage*(
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp,
       error = error
-    return
+    return err("message validation failed: " & error)
 
   let insertStartTime = getTime().toUnixFloat()
 
@@ -143,7 +144,7 @@ proc handleMessage*(
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp,
       error = error
-    return
+    return err("could not insert message in the archive: " & error)
 
   if not written:
     logos_delivery_archive_duplicates.inc(labelValues = [relayIngress])
@@ -152,7 +153,7 @@ proc handleMessage*(
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
       timestamp = msg.timestamp
-    return
+    return ok()
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
   logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
@@ -169,6 +170,13 @@ proc handleMessage*(
     contentTopic = msg.contentTopic,
     timestamp = msg.timestamp,
     insertDuration = insertDuration
+
+  return ok()
+
+proc handleMessage*(
+    self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
+) {.async.} =
+  discard await self.storeMessage(pubsubTopic, msg)
 
 proc syncMessageIngress*(
     self: WakuArchive,

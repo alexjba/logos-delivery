@@ -55,11 +55,15 @@ proc registerRelayHandler(
 
     await node.wakuFilter.handleMessage(topic, msg)
 
-  proc archiveHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc archiveHandler(
+      topic: PubsubTopic, msg: WakuMessage
+  ): Future[bool] {.async, gcsafe.} =
+    ## Tells whether the message may be offered to sync peers. A message the archive
+    ## rejected must stay out of the sync index, or sync would never fetch it.
     if node.wakuArchive.isNil():
-      return
+      return true
 
-    await node.wakuArchive.handleMessage(topic, msg)
+    return (await node.wakuArchive.storeMessage(topic, msg)).isOk()
 
   proc syncHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     if node.wakuStoreReconciliation.isNil():
@@ -75,8 +79,8 @@ proc registerRelayHandler(
   ): Future[void] {.async, gcsafe.} =
     await traceHandler(topic, msg)
     await filterHandler(topic, msg)
-    await archiveHandler(topic, msg)
-    await syncHandler(topic, msg)
+    if await archiveHandler(topic, msg):
+      await syncHandler(topic, msg)
     await internalHandler(topic, msg)
 
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
