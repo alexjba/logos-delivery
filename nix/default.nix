@@ -4,6 +4,7 @@
 , targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
+, enableRln            ? true
   # The libpq shipped beside a Windows artifact. NOT named `libpq`: callPackage would
   # auto-fill that name from `pkgs`, whose cross libpq does not build for mingw.
 , libpqPackage         ? null
@@ -55,6 +56,7 @@ let
          "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
     ++ lib.optional enablePostgres       "--define:postgres"
+    ++ lib.optional (!enableRln)         "--define:disable_rln"
     ++ lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
     ++ lib.optional (chroniclesLogLevel != null)
          "--define:chronicles_log_level=${toString chroniclesLogLevel}"
@@ -128,8 +130,9 @@ let
       # it here would link the same 27 MB archive twice.
       windowsLinkFlags
     else
-      "-L${zerokitRln}/lib -lrln"
-      + lib.optionalString hostPlatform.isLinux " -lstdc++";
+      lib.concatStringsSep " " (
+           lib.optional enableRln "-L${zerokitRln}/lib -lrln"
+        ++ lib.optional hostPlatform.isLinux "-lstdc++");
 
   # Shared `nim c` invocation; callers vary only the output, source and a few
   # mode flags. $NAT_TRAV and $NIMCACHE come from buildPhase.
@@ -139,7 +142,7 @@ let
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"${linkArgs}" \
+      ${lib.optionalString (linkArgs != "") ''--passL:"${linkArgs}"''} \
       ${nimDefineArgs} \
       ${lib.concatStringsSep " \\\n      " leopardDefineArgs} \
       ${lib.concatStringsSep " \\\n      " natDefineArgs} \
@@ -188,7 +191,7 @@ pkgs.stdenv.mkDerivation {
     # shells out to `nasm -f win64` from a compile-time macro.
     ++ lib.optionals isWindows [ pkgs.buildPackages.nasm ];
 
-  buildInputs = [ zerokitRln ]
+  buildInputs = lib.optionals enableRln [ zerokitRln ]
     ++ lib.optionals hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ]
     # nixpkgs builds mingw-w64 against mcfgthread, so nothing in the default
     # closure provides pthread.h / libpthread.a.
@@ -228,9 +231,11 @@ pkgs.stdenv.mkDerivation {
     ln -sf "$(command -v $AR)" $TMPDIR/arshim/ar
     export PATH=$TMPDIR/arshim:$PATH
 
+    ${lib.optionalString enableRln ''
     # config.nims links rln statically on Windows, as MSYS2 does, from the
     # archive this variable names -- so no rln DLL ships.
     export LIBRLN_FILE=${zerokitRln}/lib/librln.a
+    ''}
     ''}
 
     ${if buildApp then ''
@@ -326,32 +331,40 @@ ${installLibpq "$out/${dllDir}"}
     ''
     + lib.optionalString (!isWindows) (
     if buildApp then
-      lib.optionalString hostPlatform.isDarwin ''
-        cp ${zerokitRln}/lib/librln.dylib $out/lib/
-        chmod +w $out/lib/librln.dylib $out/bin/${appTarget}
-        install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
-        old=$(otool -L $out/bin/${appTarget} | awk 'NR>1{print $1}' | grep librln || true)
-        if [ -n "$old" ]; then
-          install_name_tool -change "$old" @rpath/librln.dylib $out/bin/${appTarget}
-        fi
-        install_name_tool -add_rpath @loader_path/../lib $out/bin/${appTarget}
-      ''
+      lib.optionalString hostPlatform.isDarwin (
+        lib.optionalString enableRln ''
+          cp ${zerokitRln}/lib/librln.dylib $out/lib/
+          chmod +w $out/lib/librln.dylib
+          install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+          old=$(otool -L $out/bin/${appTarget} | awk 'NR>1{print $1}' | grep librln || true)
+          if [ -n "$old" ]; then
+            install_name_tool -change "$old" @rpath/librln.dylib $out/bin/${appTarget}
+          fi
+        '' + ''
+          chmod +w $out/bin/${appTarget}
+          install_name_tool -add_rpath @loader_path/../lib $out/bin/${appTarget}
+        '')
       + lib.optionalString hostPlatform.isLinux ''
-        cp ${zerokitRln}/lib/librln.so $out/lib/
+        ${lib.optionalString enableRln "cp ${zerokitRln}/lib/librln.so $out/lib/"}
         patchelf --add-rpath '$ORIGIN/../lib' $out/bin/${appTarget}
       ''
     else
-      lib.optionalString hostPlatform.isDarwin ''
-        cp ${zerokitRln}/lib/librln.dylib $out/lib/
-        chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
-        install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
-        install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
-        old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
-        install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
-        install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
-      ''
+      lib.optionalString hostPlatform.isDarwin (
+        lib.optionalString enableRln ''
+          cp ${zerokitRln}/lib/librln.dylib $out/lib/
+          chmod +w $out/lib/librln.dylib
+          install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+        '' + ''
+          chmod +w $out/lib/liblogosdelivery.dylib
+          install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
+        '' + lib.optionalString enableRln ''
+          old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
+          install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
+        '' + ''
+          install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
+        '')
       + lib.optionalString hostPlatform.isLinux ''
-        cp ${zerokitRln}/lib/librln.so $out/lib/
+        ${lib.optionalString enableRln "cp ${zerokitRln}/lib/librln.so $out/lib/"}
         patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
       '');
 
