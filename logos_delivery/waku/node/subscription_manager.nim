@@ -58,10 +58,11 @@ proc registerRelayHandler(
   proc archiveHandler(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[bool] {.async, gcsafe.} =
-    ## Tells whether the message may be offered to sync peers. A message the archive
-    ## rejected must stay out of the sync index, or sync would never fetch it.
+    ## Tells whether the message may be offered to sync peers: only one the archive
+    ## holds. A message it rejected must stay out of the sync index, or sync would
+    ## never fetch it, and a node without an archive holds nothing.
     if node.wakuArchive.isNil():
-      return true
+      return false
 
     return (await node.wakuArchive.storeMessage(topic, msg)).isOk()
 
