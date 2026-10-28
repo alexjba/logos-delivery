@@ -176,7 +176,8 @@ proc storeMessage*(
 proc handleMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
 ) {.async.} =
-  discard await self.storeMessage(pubsubTopic, msg)
+  (await self.storeMessage(pubsubTopic, msg)).isOkOr:
+    trace "message not archived", pubsubTopic = pubsubTopic, error = error
 
 proc syncMessageIngress*(
     self: WakuArchive,
