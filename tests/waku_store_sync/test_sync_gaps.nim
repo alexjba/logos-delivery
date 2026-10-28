@@ -91,27 +91,27 @@ proc holdsAll(n: SyncNode, msgs: seq[WakuMessage]): Future[bool] {.async.} =
       return false
   return true
 
-suite "Waku Archive: storeMessage":
+suite "Waku Archive: handleMessage":
   var archive {.threadvar.}: WakuArchive
 
   setup:
     archive = newWakuArchive(newSqliteArchiveDriver())
 
   asyncTest "a message in the accepted time window is stored":
-    check (await archive.storeMessage(DefaultPubsubTopic, fakeWakuMessage())).isOk()
+    check (await archive.handleMessage(DefaultPubsubTopic, fakeWakuMessage())).isOk()
 
   asyncTest "a message that is already stored is a success":
     let msg = fakeWakuMessage()
 
     check:
-      (await archive.storeMessage(DefaultPubsubTopic, msg)).isOk()
-      (await archive.storeMessage(DefaultPubsubTopic, msg)).isOk()
+      (await archive.handleMessage(DefaultPubsubTopic, msg)).isOk()
+      (await archive.handleMessage(DefaultPubsubTopic, msg)).isOk()
 
   asyncTest "a message with an old timestamp is refused and not stored":
     let msg = fakeWakuMessage(ts = now() - 60_000_000_000)
 
     check:
-      (await archive.storeMessage(DefaultPubsubTopic, msg)).isErr()
+      (await archive.handleMessage(DefaultPubsubTopic, msg)).isErr()
       not (await archive.holdsMessages(@[computeMessageHash(DefaultPubsubTopic, msg)]))
 
 suite "Waku Sync: relay messages refused by the archive":
@@ -141,7 +141,7 @@ suite "Waku Sync: relay messages refused by the archive":
     # what b does when the relay delivers the message 60 s late: the archive refuses it,
     # so the relay handler must not add it to the sync index
     check:
-      (await b.archive.storeMessage(DefaultPubsubTopic, stale)).isErr()
+      (await b.archive.handleMessage(DefaultPubsubTopic, stale)).isErr()
       not (await b.holds(stale))
 
     (await b.recon.storeSynchronization(Opt.some(a.info))).isOkOr:

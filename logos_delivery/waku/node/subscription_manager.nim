@@ -64,7 +64,7 @@ proc registerRelayHandler(
     if node.wakuArchive.isNil():
       return false
 
-    return (await node.wakuArchive.storeMessage(topic, msg)).isOk()
+    return (await node.wakuArchive.handleMessage(topic, msg)).isOk()
 
   proc syncHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     if node.wakuStoreReconciliation.isNil():

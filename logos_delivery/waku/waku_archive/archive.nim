@@ -111,7 +111,7 @@ func getShortestTimeRetention*(self: WakuArchive): Opt[chronos.Duration] =
         shortest = Opt.some(retention)
   return shortest
 
-proc storeMessage*(
+proc handleMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
   ## Archives a relayed message. Fails when the message is rejected or not stored.
@@ -172,12 +172,6 @@ proc storeMessage*(
     insertDuration = insertDuration
 
   return ok()
-
-proc handleMessage*(
-    self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
-) {.async.} =
-  (await self.storeMessage(pubsubTopic, msg)).isOkOr:
-    trace "message not archived", pubsubTopic = pubsubTopic, error = error
 
 proc syncMessageIngress*(
     self: WakuArchive,
