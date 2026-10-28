@@ -113,7 +113,7 @@ proc initTransferHandler(
             continue
 
           archiveRes.isOkOr:
-            debug "Message not archived", error = error
+            trace "Message not archived", error = error
 
         if req.paginationCursor.isNone():
           break
