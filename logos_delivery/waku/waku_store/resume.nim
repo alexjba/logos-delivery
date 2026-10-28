@@ -106,14 +106,17 @@ proc initTransferHandler(
             continue
 
           let handleRes = catch:
-            await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
+            await wakuArchive.syncMessageIngress(
+              kv.messageHash, kv.pubsubTopic.get(), kv.message.get()
+            )
 
-          let archiveRes = handleRes.valueOr:
+          handleRes.isOkOr:
             debug "Message transfer failed", error = error.msg
             continue
 
-          archiveRes.isOkOr:
-            trace "Message not archived", error = error
+          handleRes.get().isOkOr:
+            debug "Message transfer failed", error = error
+            continue
 
         if req.paginationCursor.isNone():
           break
