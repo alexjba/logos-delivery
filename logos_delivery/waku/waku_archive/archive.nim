@@ -54,7 +54,7 @@ type WakuArchive* = ref object
 proc validate*(msg: WakuMessage): Result[void, string] =
   if msg.ephemeral:
     # Ephemeral message, do not store
-    return
+    return err("ephemeral message, will not store")
 
   let
     now = getNanosecondTime(getTime().toUnixFloat())
@@ -114,7 +114,8 @@ func getShortestTimeRetention*(self: WakuArchive): Opt[chronos.Duration] =
 proc handleMessage*(
     self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
-  ## Archives a relayed message. Fails when the message is rejected or not stored.
+  ## Archives a relayed message. Succeeds when the archive holds the message after the
+  ## call, a duplicate included, and fails when the message is refused or not written.
   let msgHash = computeMessageHash(pubsubTopic, msg)
   let msgHashHex = msgHash.to0xHex()
 
