@@ -113,9 +113,8 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.RelayProtocol] = 0
     return p.notMounted()
 
-  let count = relayPeers.len
-  hm.strength[WakuProtocol.RelayProtocol] = count
-  if count == 0:
+  hm.strength[WakuProtocol.RelayProtocol] = hm.node.wakuRelay.getMinMeshSize()
+  if relayPeers.len == 0:
     return p.notReady("No connected peers")
 
   return p.ready()
@@ -465,12 +464,12 @@ proc calculateConnectionState*(
   if dLowOpt.isSome():
     if relayCount >= dLowOpt.get():
       return ConnectionStatus.Connected
+    if relayCount > 0:
+      return ConnectionStatus.PartiallyConnected
+    # A Core node receives only through Relay, so its edge peers don't count.
+    return ConnectionStatus.Disconnected
 
-  if relayCount > 0:
-    return ConnectionStatus.PartiallyConnected
-
-  # No relay connectivity. Relay might not be mounted, or may just have zero peers.
-  # Fall back to Edge check in any case to be sure.
+  # Relay is not mounted, so check Edge connectivity.
 
   let canSend = lightpushCount > 0
   let canReceive = filterCount > 0
@@ -757,8 +756,12 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
 
   if not isNil(hm.node.wakuRelay):
     hm.relayObserver = PubSubObserver(
+      # onRecv runs when other peers graft or prune this node
       onRecv: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
-        hm.onRelayMsg(peer, msgs)
+        hm.onRelayMsg(peer, msgs),
+      # onSend runs when this node grafts or prunes other peers
+      onSend: proc(peer: PubSubPeer, msgs: var RPCMsg) {.gcsafe, raises: [].} =
+        hm.onRelayMsg(peer, msgs),
     )
     hm.node.wakuRelay.addObserver(hm.relayObserver)
 
